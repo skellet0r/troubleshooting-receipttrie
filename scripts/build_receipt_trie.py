@@ -1,8 +1,25 @@
+import json
+import os
+
 import rlp
 from brownie import web3
-from trie import HexaryTrie
-from web3.types import TxReceipt
 from hexbytes import HexBytes
+from trie import HexaryTrie
+from web3.datastructures import AttributeDict
+from web3.types import TxReceipt
+
+# Some Random Transaction for Testing
+# https://etherscan.io/tx/0x5abfd35ecf0de6d5675aab6eb7c5848ab4aaa579dcc935edbd3d02322fcab8e2
+TX_HASH = HexBytes("0x5abfd35ecf0de6d5675aab6eb7c5848ab4aaa579dcc935edbd3d02322fcab8e2")
+
+
+class ExtendedEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, HexBytes):
+            return obj.hex()
+        elif isinstance(obj, AttributeDict):
+            return dict(obj)
+        return json.JSONEncoder.default(self, obj)
 
 
 def serialize_receipt(receipt: TxReceipt) -> HexBytes:
@@ -10,9 +27,13 @@ def serialize_receipt(receipt: TxReceipt) -> HexBytes:
     receipt_type = HexBytes(receipt.get("type", 0))
     receipt_status = HexBytes(receipt.get("root", receipt["status"]))
     receipt_cumulative_gas = receipt["cumulativeGasUsed"]
-    receipt_logs_bloom = receipt["logsBloom"]
+    receipt_logs_bloom = HexBytes(receipt["logsBloom"])
     receipt_logs = [
-        (HexBytes(log["address"]), log["topics"], HexBytes(log["data"]))
+        (
+            HexBytes(log["address"]),
+            list(map(HexBytes, log["topics"])),
+            HexBytes(log["data"]),
+        )
         for log in receipt["logs"]
     ]
 
@@ -24,9 +45,26 @@ def serialize_receipt(receipt: TxReceipt) -> HexBytes:
     return HexBytes(encoded)  # legacy receipt
 
 
-# Some Random Transaction for Testing
-# https://etherscan.io/tx/0x5abfd35ecf0de6d5675aab6eb7c5848ab4aaa579dcc935edbd3d02322fcab8e2
-TX_HASH = HexBytes("0x5abfd35ecf0de6d5675aab6eb7c5848ab4aaa579dcc935edbd3d02322fcab8e2")
+def download_block_receipts(force=True) -> dict:
+    """Download a block's transaction receipts and save to disk."""
+    # fetch the tx related data
+    tx = web3.eth.get_transaction(TX_HASH)
+    tx_block = web3.eth.get_block(tx["blockNumber"])
+
+    file_name = f"block-{tx['blockNumber']}-receipts.json"
+    if not force and os.path.exists(file_name):
+        with open(file_name) as f:
+            return json.load(f)
+
+    # generator for retrieving all the tx receipts in a block
+    receipts = (
+        web3.eth.get_transaction_receipt(_tx) for _tx in tx_block["transactions"]
+    )
+
+    with open(file_name, "w") as f:
+        json.dump(list(receipts), f, indent=2, sort_keys=True, cls=ExtendedEncoder)
+
+    return receipts
 
 
 def main():
@@ -37,10 +75,8 @@ def main():
     # initialize the trie
     trie = HexaryTrie({})
 
-    # generator for retrieving all the tx receipts in a block
-    receipts = (
-        web3.eth.get_transaction_receipt(_tx) for _tx in tx_block["transactions"]
-    )
+    # get all the tx receipts in a block
+    receipts = download_block_receipts(force=False)
 
     # add each receipt to the receipts trie
     for tx_receipt in receipts:

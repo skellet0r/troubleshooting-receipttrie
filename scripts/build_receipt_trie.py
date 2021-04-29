@@ -10,8 +10,9 @@ from web3.types import TxReceipt
 
 # Some Random Transaction for Testing
 # https://etherscan.io/tx/0x5abfd35ecf0de6d5675aab6eb7c5848ab4aaa579dcc935edbd3d02322fcab8e2
-TX_HASH = HexBytes("0x5abfd35ecf0de6d5675aab6eb7c5848ab4aaa579dcc935edbd3d02322fcab8e2")
-
+# TX_HASH = HexBytes("0x5abfd35ecf0de6d5675aab6eb7c5848ab4aaa579dcc935edbd3d02322fcab8e2")
+# pre-berlin tx
+TX_HASH = HexBytes("0x819e763e8cec7afaf63611aa43e4124a6ed69e272e9ff94eb1ad4cda29b4f6e5")
 
 class ExtendedEncoder(json.JSONEncoder):
     def default(self, obj):

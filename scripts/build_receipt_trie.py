@@ -9,6 +9,11 @@ from hexbytes import HexBytes
 from trie import HexaryTrie
 from web3.datastructures import AttributeDict
 from web3.types import TxReceipt
+from typing import Tuple, List
+import io
+
+PreparedLogs = List[Tuple[bytes, List[bytes], bytes]]
+PreparedReceipt = Tuple[bytes, int, bytes, PreparedLogs]
 
 # Some Random Transaction for Testing
 # https://etherscan.io/tx/0x5abfd35ecf0de6d5675aab6eb7c5848ab4aaa579dcc935edbd3d02322fcab8e2
@@ -48,10 +53,12 @@ def download_block_receipts(force=True) -> dict:
     return receipts
 
 
-def prepare_receipt(receipt: TxReceipt) -> HexBytes:
-    """Serialize a transaction receipt"""
-    receipt_type = HexBytes(receipt.get("type", 0))
-    receipt_status = HexBytes(receipt.get("root", receipt["status"]))
+def prepare_receipt(receipt: TxReceipt) -> PreparedReceipt:
+    """Prepare a transaction receipt for serialization"""
+    receipt_root = HexBytes(receipt.get("root", b""))
+    receipt_status = receipt.get("status", 1)
+
+    receipt_root_or_status = receipt_root if len(receipt_root) > 0 else receipt_status
     receipt_cumulative_gas = receipt["cumulativeGasUsed"]
     receipt_logs_bloom = HexBytes(receipt["logsBloom"])
     receipt_logs = [
@@ -63,7 +70,24 @@ def prepare_receipt(receipt: TxReceipt) -> HexBytes:
         for log in receipt["logs"]
     ]
 
-    return [receipt_status, receipt_cumulative_gas, receipt_logs_bloom, receipt_logs]
+    return (
+        receipt_root_or_status,
+        receipt_cumulative_gas,
+        receipt_logs_bloom,
+        receipt_logs,
+    )
+
+
+def serialize_receipt(receipt: TxReceipt) -> bytes:
+    prepared_receipt = prepare_receipt(receipt)
+    encoded_receipt = rlp.encode(prepared_receipt)
+
+    receipt_type = HexBytes(receipt.get("type", 0))
+    if receipt_type == HexBytes(0):
+        return encoded_receipt
+
+    buffer = HexBytes(receipt_type) + encoded_receipt
+    return rlp.encode(buffer)
 
 
 def main():
@@ -80,7 +104,7 @@ def main():
     # add each receipt to the receipts trie
     for tx_receipt in receipts:
         path = rlp.encode(tx_receipt["transactionIndex"])
-        trie[path] = prepare_receipt(tx_receipt)
+        trie[path] = serialize_receipt(tx_receipt)
 
     a, b = trie.root_hash, tx_block["receiptsRoot"]
     err_msg = f"{a.hex()} != {b.hex()}"
